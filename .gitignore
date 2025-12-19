@@ -1,0 +1,23 @@
+# --- Python Basics ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+venv/
+env/
+t310-env/
+
+# --- Large Data & Models ---
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+models/*.h5
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+
+# --- Node.js / React (NEW) ---
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
