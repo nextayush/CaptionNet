@@ -5,6 +5,9 @@ __pycache__/
 venv/
 env/
 t310-env/
+debug_inference.py
+debug_keys.py
+find_images.py
 
 # --- Large Data & Models ---
 data/raw/*
