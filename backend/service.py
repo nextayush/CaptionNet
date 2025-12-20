@@ -1,6 +1,7 @@
 import sys
 import logging
 import traceback  # <--- NEW
+import gc
 from pathlib import Path
 
 # --- PATH SETUP ---
@@ -37,13 +38,14 @@ def generate_caption(image_path: str, strategy: str = "beam"):
         raise RuntimeError("AI Model is not loaded.")
     
     try:
-        # --- CRITICAL: DEBUGGING PRINT ---
         print(f"DEBUG: Processing image at {image_path}")
         caption = _caption_generator.generate_caption(image_path, strategy=strategy)
+        
+        gc.collect()
+        
         return caption
         
     except Exception as e:
-        # --- THIS WILL PRINT THE EXACT ERROR ---
         print("\n" + "="*50)
         print("❌ PREDICTION CRASHED HERE:")
         traceback.print_exc()
