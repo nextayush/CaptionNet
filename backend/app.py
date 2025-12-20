@@ -1,28 +1,36 @@
-import shutil
+import sys
+import uuid
 import os
-import sys  # <--- Make sure sys is imported
+import shutil
 from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.append(str(BASE_DIR))
+# --- PATH SETUP ---
+# Detect if we are running from 'backend' dir or root
+current_dir = Path(os.getcwd())
+if current_dir.name == "backend":
+    # If running from backend/ folder, go up one level
+    BASE_DIR = current_dir.parent
+else:
+    # If running from root, we are already there
+    BASE_DIR = current_dir
 
-# Import local modules
+# Add root to sys.path so we can import 'src'
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+# --- IMPORT SERVICE ---
+# Try/Except handles imports regardless of where you run the script from
 try:
-    from backend import service, schemas
+    from backend import service
 except ImportError:
-    import service, schemas
+    import service
 
-app = FastAPI(
-    title="CaptionNet API",
-    version="1.0.0",
-    description="Backend for Image Captioning Project"
-)
+app = FastAPI()
 
-# --- CORS CONFIGURATION ---
-# Allows React (localhost:5173) to talk to FastAPI (localhost:8000)
+# Enable CORS (Allows Frontend to talk to Backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,56 +39,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- EVENTS ---
+# Ensure temp directory exists
+TEMP_DIR = BASE_DIR / "backend" / "temp_uploads"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
 @app.on_event("startup")
 async def startup_event():
-    """Load the model when the server starts."""
+    """Load the model once when server starts"""
+    print(f"📂 Project Root detected at: {BASE_DIR}")
     try:
         service.load_ai_model()
     except Exception as e:
-        print(f"Failed to start AI Service: {e}")
-        # We don't exit here so you can still hit the root endpoint for debugging
-
-# --- ROUTES ---
+        print(f"❌ Failed to load model: {e}")
 
 @app.get("/")
 def home():
-    return {"status": "online", "service": "Image Captioning Backend"}
+    return {"status": "online", "message": "CaptionNet Backend is Running"}
 
-@app.post("/predict", response_model=schemas.CaptionResponse)
+@app.post("/predict")
 async def predict(file: UploadFile = File(...), strategy: str = "beam"):
-    
-    # 1. Validation
-    if file.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
-        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JPG or PNG.")
+    """
+    Receives an image, saves it uniquely, runs AI, and cleans up.
+    """
+    # 1. Generate a unique filename to prevent Windows file locking conflicts
+    unique_filename = f"{uuid.uuid4().hex}.jpg"
+    temp_path = TEMP_DIR / unique_filename
 
-    # 2. Save Temp File
-    # We must save to disk because VGG16 expects a file path
-    temp_filename = f"temp_{file.filename}"
-    temp_path = BASE_DIR / "backend" / temp_filename
-    
     try:
+        # 2. Save the uploaded file
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        # 3. Call Service Layer
-        caption_text = service.generate_caption(str(temp_path), strategy)
         
-        return {
-            "filename": file.filename,
-            "caption": caption_text,
-            "strategy": strategy
-        }
+        # 3. Run Prediction
+        caption = service.generate_caption(str(temp_path), strategy)
+        
+        return JSONResponse(content={"caption": caption})
 
     except Exception as e:
+        print(f"❌ ERROR processing request: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
         
     finally:
-        # 4. Cleanup
-        if temp_path.exists():
-            os.remove(temp_path)
+        # 4. Cleanup: Delete the file regardless of success/failure
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except PermissionError:
+                print(f"⚠️ Warning: Could not delete temp file {unique_filename} (Windows Lock). It will stay in temp folder.")
+            except Exception as cleanup_err:
+                print(f"⚠️ Cleanup error: {cleanup_err}")
 
 if __name__ == "__main__":
     import uvicorn
-    # Run the server
+    # Run on localhost
     uvicorn.run(app, host="127.0.0.1", port=8000)
